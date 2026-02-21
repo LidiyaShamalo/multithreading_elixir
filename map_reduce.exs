@@ -1,32 +1,47 @@
 defmodule MapReduce do
 
   def start() do
-    files = [
-      "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_01_processes.md",
-      "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_02_mailbox.md",
-      "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_03_link.md",
-      "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_04_monitor.md",
-      "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_05_map_reduce.md"
-    ]
+    tree = {:reducer, [
+      {:reducer, [
+        {:mapper, "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_01_processes.md"},
+        {:mapper, "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_02_mailbox.md"},
+        {:mapper, "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_03_link.md"},
+      ]},
+      {:reducer, [
+        {:mapper, "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_04_monitor.md"},
+        {:mapper, "/home/damian/Elixir/Projects/elixir_course_2/lesson_01/01_05_map_reduce.md"}
+      ]}
+    ]}
 
-    MapReduce.Reducer.start(files)
+    pid = start_process(tree)
+    receive do
+      {:result, pid, result} ->
+        result
+      unknown_msg ->
+        IO.puts("MapReduce #{inspect(self())} got unknown message #{inspect(unknown_msg)}")
+    after
+      1000 -> IO.puts("MapReduce #{inspect(self())} got not messages")
+    end
+  end
+
+  def start_process({:reducer, children}) do
+    spawn(MapReduce.Reducer, :run, [self(), children])
+  end
+
+  def start_process({:mapper, file}) do
+    spawn(MapReduce.Mapper, :run, [self(), file])
   end
 
   defmodule Reducer do
-
     defmodule State do
       defstruct [:parent, :children, :results]
     end
 
-    def start(files) do
-      spawn(Reducer, :run, [self(), files])
-    end
-
-    def run(parent, files) do
-      IO.puts("Reducer #{inspect(self())} with parebt #{inspect(parent)} and #{length(files)}")
-      mappers = Enum.map(files, fn(file) -> MapReduce.Mapper.start(file) end)
-      IO.puts("mappers started #{inspect(mappers)}")
-      state = %State{parent: parent, children: mappers, results: []}
+    def run(parent, tree_nodes) do
+      IO.puts("Reducer #{inspect(self())} with parent #{inspect(parent)} and #{length(tree_nodes)}")
+      children = Enum.map(tree_nodes, fn(node) -> MapReduce.start_process(node) end)
+      IO.puts("child processes started #{inspect(children)}")
+      state = %State{parent: parent, children: children, results: []}
       loop(state)
     end
 
@@ -36,28 +51,25 @@ defmodule MapReduce do
       send(parent, {:result, self(), result})
     end
 
-    def loop(%State{ children: mappers, results: results} = state) do
-      IO.puts("Reducer #{inspect(self())} are in loop with #{length(mappers)} mappers left")
+    def loop(%State{children: mappers, results: results} = state) do
+      IO.puts("Reducer #{inspect(self())} are in loop with #{length(mappers)} children left")
       receive do
         {:result, mapper, result} ->
-          IO.puts("Reducer #{inspect(self())} got result #{result} from mapper #{inspect(mapper)}")
-          state = %State{ state |
-          children: List.delete(mappers, mapper),
-          results: [result | results]}
+          IO.puts("Reducer #{inspect(self())} got result #{result} from #{inspect(mapper)}")
+          state = %State{state |
+            children: List.delete(mappers, mapper),
+            results: [result | results]
+          }
           loop(state)
         unknown_msg ->
           IO.puts("Reducer #{inspect(self())} got unknown message #{inspect(unknown_msg)}")
-        after
-          1000 -> IO.puts("Reducer #{inspect(self())} got messages")
+      after
+        1000 -> IO.puts("Reducer #{inspect(self())} got not messages")
       end
     end
   end
 
   defmodule Mapper do
-    def start(file) do
-      spawn(Mapper, :run, [self(), file])
-    end
-
     def run(parent, file) do
       IO.puts("Mapper #{inspect(self())} with parent #{inspect(parent)} and file #{file}")
       count = words_cound(file)
@@ -68,7 +80,6 @@ defmodule MapReduce do
       {:ok, content} = File.read(file)
       String.split(content) |> length()
     end
-
   end
 
 end
