@@ -13,6 +13,11 @@ defmodule MapReduce do
   end
 
   defmodule Reducer do
+
+    defmodule State do
+      defstruct [:parent, :children, :results]
+    end
+
     def start(files) do
       spawn(Reducer, :run, [self(), files])
     end
@@ -21,24 +26,24 @@ defmodule MapReduce do
       IO.puts("Reducer #{inspect(self())} with parebt #{inspect(parent)} and #{length(files)}")
       mappers = Enum.map(files, fn(file) -> MapReduce.Mapper.start(file) end)
       IO.puts("mappers started #{inspect(mappers)}")
-      state = {parent, mappers, []}
+      state = %State{parent: parent, children: mappers, results: []}
       loop(state)
     end
 
-    def loop({parent, [], results}) do
+    def loop(%State{parent: parent, children: [], results: results}) do
       IO.puts("Reducer #{inspect(self())} got results #{inspect(results)}")
       result = Enum.sum(results)
       send(parent, {:result, self(), result})
     end
 
-    def loop({parent, mappers, results}) do
+    def loop(%State{ children: mappers, results: results} = state) do
       IO.puts("Reducer #{inspect(self())} are in loop with #{length(mappers)} mappers left")
       receive do
         {:result, mapper, result} ->
           IO.puts("Reducer #{inspect(self())} got result #{result} from mapper #{inspect(mapper)}")
-          mappers = List.delete(mappers, mapper)
-          results = [result | results]
-          state = {parent, mappers, results}
+          state = %State{ state |
+          children: List.delete(mappers, mapper),
+          results: [result | results]}
           loop(state)
         unknown_msg ->
           IO.puts("Reducer #{inspect(self())} got unknown message #{inspect(unknown_msg)}")
