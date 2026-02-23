@@ -23,7 +23,8 @@ defmodule SessionManager do
 
   @spec add_session(pid(), String.t()) :: :ok
   def add_session(pid, username) do
-    session = %Session{username: username, shard: 1, node: "node-1"}
+    {shard, node} = ShardManager.settle(username)
+    session = %Session{username: username, shard: shard, node: node}
     Agent.update(pid, fn(state) -> [session | state] end)
     :ok
   end
